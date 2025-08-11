@@ -5,6 +5,7 @@ import tempfile
 import yt_dlp
 import base64
 from urllib.parse import parse_qs
+import re
 
 class handler(BaseHTTPRequestHandler):
     def send_cors_headers(self):
@@ -63,27 +64,70 @@ class handler(BaseHTTPRequestHandler):
                 title = "Uploaded Audio File"
             
             if not api_key:
-                # 返回提示需要API密钥的演示数据
-                print("No API key provided, returning demo response")
-                response = {
-                    "title": f"[需要API密钥] {title}",
-                    "segments": [
-                        {
-                            "start": 0.0,
-                            "end": 5.0,
-                            "text": "Please provide OpenAI API key for real transcription.",
-                            "translation": "请输入OpenAI API密钥以启用真实的AI转录功能。"
-                        },
-                        {
-                            "start": 5.0,
-                            "end": 10.0,
-                            "text": "You can get your API key from platform.openai.com",
-                            "translation": "您可以从 platform.openai.com 获取API密钥。"
+                # 没有API密钥时的处理
+                print("No API key provided")
+                
+                if audio_file:
+                    # 音频文件上传需要API密钥
+                    response = {
+                        "title": f"[需要API密钥] {title}",
+                        "segments": [
+                            {
+                                "start": 0.0,
+                                "end": 5.0,
+                                "text": "Audio file transcription requires OpenAI API key.",
+                                "translation": "音频文件转录需要OpenAI API密钥。"
+                            },
+                            {
+                                "start": 5.0,
+                                "end": 10.0,
+                                "text": "You can get your API key from platform.openai.com",
+                                "translation": "您可以从 platform.openai.com 获取API密钥。"
+                            }
+                        ]
+                    }
+                    self.send_success_response(response)
+                    return
+                else:
+                    # YouTube字幕提取不需要API密钥，但翻译需要
+                    try:
+                        print("Extracting subtitles without API key...")
+                        subtitle_content, video_title = self.extract_subtitles(url)
+                        title = video_title
+                        segments = self.parse_subtitles(subtitle_content)
+                        
+                        # 不翻译，只返回英文字幕
+                        translated_segments = []
+                        for seg in segments:
+                            translated_segments.append({
+                                "start": seg['start'],
+                                "end": seg['end'],
+                                "text": seg['text'],
+                                "translation": f"[需要API密钥进行中文翻译] {seg['text'][:50]}..."
+                            })
+                        
+                        response = {
+                            "title": f"[仅英文字幕] {title}",
+                            "segments": translated_segments
                         }
-                    ]
-                }
-                self.send_success_response(response)
-                return
+                        self.send_success_response(response)
+                        return
+                        
+                    except Exception as e:
+                        # 字幕提取失败，返回演示数据
+                        response = {
+                            "title": f"[字幕提取失败] {title}",
+                            "segments": [
+                                {
+                                    "start": 0.0,
+                                    "end": 5.0,
+                                    "text": f"Subtitle extraction failed: {str(e)}",
+                                    "translation": f"字幕提取失败: {str(e)}"
+                                }
+                            ]
+                        }
+                        self.send_success_response(response)
+                        return
             
             # 尝试进行真实的转写
             try:
@@ -91,9 +135,10 @@ class handler(BaseHTTPRequestHandler):
                 from openai import OpenAI
                 from deep_translator import GoogleTranslator
                 
-                # 获取音频文件
+                segments = []
+                
                 if audio_file:
-                    # 使用上传的音频文件
+                    # 使用上传的音频文件进行AI转录
                     final_audio_file = audio_file
                     print(f"Using uploaded audio file: {final_audio_file}")
                     # 检查文件是否存在和大小
@@ -104,16 +149,20 @@ class handler(BaseHTTPRequestHandler):
                             raise Exception("上传的文件为空")
                     else:
                         raise Exception(f"上传的文件不存在: {final_audio_file}")
+                    
+                    # 转写
+                    print(f"Starting transcription with OpenAI...")
+                    client = OpenAI(api_key=api_key)
+                    segments = self.transcribe_audio(final_audio_file, client)
+                    print(f"Transcription complete, got {len(segments)} segments")
+                    
                 else:
-                    # 从YouTube下载音频
-                    final_audio_file = self.download_audio(url)
-                    print(f"Downloaded audio from YouTube: {final_audio_file}")
-                
-                # 转写
-                print(f"Starting transcription with OpenAI...")
-                client = OpenAI(api_key=api_key)
-                segments = self.transcribe_audio(final_audio_file, client)
-                print(f"Transcription complete, got {len(segments)} segments")
+                    # 从YouTube提取字幕（更快、更可靠）
+                    print(f"Extracting subtitles from YouTube...")
+                    subtitle_content, video_title = self.extract_subtitles(url)
+                    title = video_title  # 更新标题
+                    segments = self.parse_subtitles(subtitle_content)
+                    print(f"Subtitle extraction complete, got {len(segments)} segments")
                 
                 # 翻译
                 print(f"Starting translation...")
@@ -122,12 +171,13 @@ class handler(BaseHTTPRequestHandler):
                 print(f"Translation complete")
                 
                 # 清理文件
-                try:
-                    if os.path.exists(final_audio_file):
-                        os.remove(final_audio_file)
-                        print(f"Cleaned up file: {final_audio_file}")
-                except Exception as cleanup_error:
-                    print(f"Cleanup error: {cleanup_error}")
+                if audio_file:  # 只有上传的文件才需要清理
+                    try:
+                        if os.path.exists(final_audio_file):
+                            os.remove(final_audio_file)
+                            print(f"Cleaned up file: {final_audio_file}")
+                    except Exception as cleanup_error:
+                        print(f"Cleanup error: {cleanup_error}")
                 
                 response = {
                     "title": title,
@@ -246,77 +296,177 @@ class handler(BaseHTTPRequestHandler):
             traceback.print_exc()
             return {}, None
     
-    def download_audio(self, url):
-        """Download audio from YouTube - Optimized for Vercel"""
+    def extract_subtitles(self, url):
+        """Extract subtitles from YouTube - No download needed"""
         try:
-            # 使用/tmp目录，Vercel中唯一可写的目录
-            temp_dir = '/tmp'
-            import uuid
-            unique_id = str(uuid.uuid4())[:8]
-            output_path = os.path.join(temp_dir, f'audio_{unique_id}')
+            print(f"Extracting subtitles from: {url}")
             
-            # 优化配置，增强反检测能力
             ydl_opts = {
-                'format': 'bestaudio[ext=m4a][filesize<25M]/bestaudio[filesize<25M]/best[filesize<25M]',
-                'outtmpl': output_path + '.%(ext)s',
+                'writesubtitles': True,
+                'writeautomaticsub': True,  # 包括自动生成的字幕
+                'subtitleslangs': ['en', 'en-US', 'en-GB'],  # 优先英文字幕
+                'skip_download': True,  # 不下载视频
                 'quiet': True,
                 'no_warnings': True,
-                'prefer_ffmpeg': False,  # 不强制使用FFmpeg
-                'extract_flat': False,
-                # 增强反检测措施
+                # 反检测措施
                 'http_headers': {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
                     'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
                     'Accept-Encoding': 'gzip, deflate, br',
                     'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1',
-                    'Sec-Fetch-Dest': 'document',
-                    'Sec-Fetch-Mode': 'navigate',
-                    'Sec-Fetch-Site': 'none',
-                    'Sec-Fetch-User': '?1',
-                    'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                    'sec-ch-ua-mobile': '?0',
-                    'sec-ch-ua-platform': '"Windows"'
                 },
-                'extractor_retries': 5,
-                'sleep_interval': 2,
-                'max_sleep_interval': 10,
-                'skip_unavailable_fragments': True,
-                'ignoreerrors': False,
-                # 添加cookies支持（模拟真实用户）
-                'cookiefile': None,
-                'cookiesfrombrowser': None,
+                'extractor_retries': 3,
+                'sleep_interval': 1,
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # 首先获取视频信息
+                # 获取视频信息，包括字幕
                 info = ydl.extract_info(url, download=False)
                 if not info:
                     raise Exception("无法获取视频信息")
                 
-                # 检查视频长度（限制在10分钟内）
-                duration = info.get('duration', 0)
-                if duration > 600:  # 10分钟
-                    raise Exception("视频太长，请使用10分钟以内的视频")
+                # 获取字幕数据
+                subtitles = info.get('subtitles', {})
+                automatic_captions = info.get('automatic_captions', {})
                 
-                # 下载音频
-                ydl.download([url])
+                print(f"Available subtitles: {list(subtitles.keys())}")
+                print(f"Available auto captions: {list(automatic_captions.keys())}")
+                
+                # 优先使用手动字幕，然后是自动字幕
+                subtitle_data = None
+                subtitle_lang = None
+                
+                # 检查手动字幕
+                for lang in ['en', 'en-US', 'en-GB']:
+                    if lang in subtitles:
+                        subtitle_data = subtitles[lang]
+                        subtitle_lang = lang
+                        print(f"Found manual subtitles in {lang}")
+                        break
+                
+                # 如果没有手动字幕，使用自动字幕
+                if not subtitle_data:
+                    for lang in ['en', 'en-US', 'en-GB']:
+                        if lang in automatic_captions:
+                            subtitle_data = automatic_captions[lang]
+                            subtitle_lang = lang
+                            print(f"Found auto captions in {lang}")
+                            break
+                
+                if not subtitle_data:
+                    raise Exception("没有找到英文字幕")
+                
+                # 获取字幕内容
+                subtitle_url = None
+                for format_data in subtitle_data:
+                    if format_data.get('ext') in ['vtt', 'srv3', 'ttml']:
+                        subtitle_url = format_data.get('url')
+                        break
+                
+                if not subtitle_url:
+                    raise Exception("无法获取字幕下载链接")
+                
+                print(f"Downloading subtitles from: {subtitle_url}")
+                
+                # 下载字幕内容
+                import urllib.request
+                with urllib.request.urlopen(subtitle_url) as response:
+                    subtitle_content = response.read().decode('utf-8')
+                
+                return subtitle_content, info.get('title', 'Unknown Video')
+                
+        except Exception as e:
+            print(f"Subtitle extraction error: {e}")
+            raise Exception(f"字幕提取失败: {str(e)}")
+    
+    def parse_subtitles(self, subtitle_content):
+        """Parse VTT/SRT subtitle format to segments"""
+        try:
+            segments = []
             
-            # 查找下载的文件
-            for file in os.listdir(temp_dir):
-                if file.startswith(f'audio_{unique_id}') and (file.endswith('.m4a') or file.endswith('.mp3') or file.endswith('.webm')):
-                    file_path = os.path.join(temp_dir, file)
-                    # 检查文件大小
-                    file_size = os.path.getsize(file_path)
-                    if file_size < 25 * 1024 * 1024 and file_size > 0:  # 25MB且不为空
-                        return file_path
+            # VTT格式解析
+            if 'WEBVTT' in subtitle_content:
+                print("Parsing VTT format")
+                lines = subtitle_content.split('\n')
+                current_segment = {}
+                
+                for line in lines:
+                    line = line.strip()
+                    if not line or line.startswith('WEBVTT') or line.startswith('NOTE'):
+                        continue
+                    
+                    # 时间戳行 (格式: 00:00:01.000 --> 00:00:05.000)
+                    if '-->' in line:
+                        time_match = re.search(r'(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})', line)
+                        if time_match:
+                            start_time = self.time_to_seconds(time_match.group(1))
+                            end_time = self.time_to_seconds(time_match.group(2))
+                            current_segment = {
+                                'start': start_time,
+                                'end': end_time,
+                                'text': ''
+                            }
+                    
+                    # 文本行
+                    elif line and 'start' in current_segment:
+                        # 去除HTML标签
+                        clean_text = re.sub(r'<[^>]+>', '', line)
+                        if clean_text.strip():
+                            if current_segment['text']:
+                                current_segment['text'] += ' ' + clean_text.strip()
+                            else:
+                                current_segment['text'] = clean_text.strip()
+                    
+                    # 空行表示段落结束
+                    elif not line and current_segment.get('text'):
+                        segments.append(current_segment)
+                        current_segment = {}
+                
+                # 添加最后一个segment
+                if current_segment.get('text'):
+                    segments.append(current_segment)
             
-            raise Exception("下载的音频文件未找到或为空")
+            # 如果解析失败，尝试简单的文本提取
+            if not segments:
+                print("Fallback to simple text extraction")
+                # 提取所有文本，创建一个简单的segment
+                clean_text = re.sub(r'<[^>]+>', '', subtitle_content)
+                clean_text = re.sub(r'\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}', '', clean_text)
+                clean_text = '\n'.join([line.strip() for line in clean_text.split('\n') if line.strip() and not line.strip().startswith('WEBVTT')])
+                
+                if clean_text:
+                    segments = [{
+                        'start': 0.0,
+                        'end': 30.0,
+                        'text': clean_text[:500] + ('...' if len(clean_text) > 500 else '')
+                    }]
+            
+            print(f"Parsed {len(segments)} subtitle segments")
+            return segments
             
         except Exception as e:
-            print(f"Download error: {e}")
-            raise Exception(f"音频下载失败: {str(e)}")
+            print(f"Subtitle parsing error: {e}")
+            return [{
+                'start': 0.0,
+                'end': 10.0,
+                'text': '字幕解析失败，请尝试其他视频'
+            }]
+    
+    def time_to_seconds(self, time_str):
+        """Convert time string (HH:MM:SS.mmm) to seconds"""
+        try:
+            parts = time_str.split(':')
+            hours = int(parts[0])
+            minutes = int(parts[1])
+            seconds_parts = parts[2].split('.')
+            seconds = int(seconds_parts[0])
+            milliseconds = int(seconds_parts[1]) if len(seconds_parts) > 1 else 0
+            
+            total_seconds = hours * 3600 + minutes * 60 + seconds + milliseconds / 1000.0
+            return total_seconds
+        except:
+            return 0.0
     
     def transcribe_audio(self, audio_file, client):
         """Transcribe using OpenAI Whisper"""
