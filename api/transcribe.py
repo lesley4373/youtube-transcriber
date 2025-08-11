@@ -200,7 +200,7 @@ class handler(BaseHTTPRequestHandler):
                     "start": seg['start'],
                     "end": seg['end'],
                     "text": seg['text'],
-                    "translation": translation.text
+                    "translation": translation.text if hasattr(translation, 'text') else str(translation)
                 })
             except Exception as e:
                 print(f"Translation error: {e}")
