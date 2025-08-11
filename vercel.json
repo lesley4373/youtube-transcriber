@@ -1,11 +1,6 @@
 {
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/build",
-  "functions": {
-    "api/transcribe.py": {
-      "runtime": "python@3.9"
-    }
-  },
   "rewrites": [
     {
       "source": "/api/(.*)",
