@@ -199,12 +199,21 @@ class handler(BaseHTTPRequestHandler):
                     print(f"Subtitle text processing complete, got {len(segments)} segments")
                     
                 else:
-                    # 从YouTube提取字幕（更快、更可靠）
-                    print(f"Extracting subtitles from YouTube...")
-                    subtitle_content, video_title = self.extract_subtitles(url)
-                    title = video_title  # 更新标题
-                    segments = self.parse_subtitles(subtitle_content)
-                    print(f"Subtitle extraction complete, got {len(segments)} segments")
+                    # 尝试直接获取音频URL进行转录（更高质量）
+                    try:
+                        print(f"Trying audio URL extraction method...")
+                        audio_url, video_title = self.get_audio_url(url)
+                        title = video_title
+                        segments = self.transcribe_from_url(audio_url, client)
+                        print(f"Audio URL transcription complete, got {len(segments)} segments")
+                    except Exception as audio_error:
+                        print(f"Audio URL method failed: {audio_error}")
+                        # 回退到字幕提取方法
+                        print(f"Falling back to subtitle extraction...")
+                        subtitle_content, video_title = self.extract_subtitles(url)
+                        title = video_title
+                        segments = self.parse_subtitles(subtitle_content)
+                        print(f"Subtitle extraction complete, got {len(segments)} segments")
                 
                 # 翻译
                 print(f"Starting translation...")
@@ -567,6 +576,84 @@ class handler(BaseHTTPRequestHandler):
                 'text': subtitle_text[:200] + ('...' if len(subtitle_text) > 200 else '')
             }]
     
+    def get_audio_url(self, url):
+        """Extract direct audio URL from YouTube without downloading"""
+        try:
+            print(f"Extracting audio URL from: {url}")
+            
+            ydl_opts = {
+                'format': 'bestaudio',
+                'quiet': True,
+                'no_warnings': True,
+                # 反检测措施
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Connection': 'keep-alive',
+                },
+                'extractor_retries': 3,
+                'sleep_interval': 1,
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                if not info:
+                    raise Exception("无法获取视频信息")
+                
+                # 获取最佳音频格式的直接URL
+                audio_url = info.get('url')
+                video_title = info.get('title', 'Unknown Video')
+                
+                if not audio_url:
+                    raise Exception("无法获取音频URL")
+                
+                print(f"Got audio URL: {audio_url[:100]}...")
+                return audio_url, video_title
+                
+        except Exception as e:
+            print(f"Audio URL extraction error: {e}")
+            raise Exception(f"音频URL提取失败: {str(e)}")
+
+    def transcribe_from_url(self, audio_url, client):
+        """Transcribe audio from direct URL using OpenAI Whisper"""
+        try:
+            print(f"Downloading audio from URL for transcription...")
+            
+            # 下载音频到临时文件
+            import urllib.request
+            import tempfile
+            
+            # 创建临时文件
+            temp_audio = tempfile.NamedTemporaryFile(suffix='.m4a', delete=False)
+            temp_audio.close()
+            
+            # 下载音频
+            urllib.request.urlretrieve(audio_url, temp_audio.name)
+            
+            print(f"Audio downloaded to temp file: {temp_audio.name}")
+            
+            # 使用现有的转录方法
+            segments = self.transcribe_audio(temp_audio.name, client)
+            
+            # 清理临时文件
+            try:
+                os.remove(temp_audio.name)
+                print(f"Cleaned up temp audio file")
+            except Exception as cleanup_error:
+                print(f"Cleanup error: {cleanup_error}")
+            
+            return segments
+            
+        except Exception as e:
+            print(f"URL transcription error: {e}")
+            return [{
+                "start": 0,
+                "end": 5,
+                "text": f"URL transcription failed: {str(e)}"
+            }]
+
     def transcribe_audio(self, audio_file, client):
         """Transcribe using OpenAI Whisper"""
         try:
