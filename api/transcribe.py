@@ -1,84 +1,81 @@
-from http.server import BaseHTTPRequestHandler
 import json
 
-class handler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        # 设置CORS头
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
-        
+def handler(request, response):
+    """
+    Vercel serverless function handler
+    """
+    # Handle CORS
+    response.status_code = 200
+    response.headers = {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+    }
+    
+    # Handle OPTIONS request for CORS preflight
+    if request.method == 'OPTIONS':
+        return response
+    
+    # Handle GET request for health check
+    if request.method == 'GET':
+        response.body = json.dumps({
+            "message": "YouTube Transcriber API",
+            "status": "healthy",
+            "version": "1.0.0-vercel"
+        })
+        return response
+    
+    # Handle POST request for transcription
+    if request.method == 'POST':
         try:
-            # 读取请求数据
-            content_length = int(self.headers.get('Content-Length', 0))
-            if content_length > 0:
-                post_data = self.rfile.read(content_length)
-                data = json.loads(post_data.decode('utf-8'))
-                url = data.get('url', 'Unknown Video')
-            else:
-                url = "Unknown Video"
+            # Parse request body
+            body = json.loads(request.body) if request.body else {}
+            url = body.get('url', '')
             
-            # 简单提取视频标题（从URL中）
-            title = "Unknown Video"
-            if 'youtu' in url:
-                title = "YouTube Video"
+            # Simple title extraction from URL
+            title = "YouTube Video"
+            if 'youtu' in url.lower():
+                title = "YouTube Video (Demo Mode)"
             
-            # 返回演示数据
-            response = {
+            # Return demo transcription data
+            result = {
                 "title": f"[DEMO] {title}",
                 "segments": [
                     {
                         "start": 0.0,
                         "end": 5.0,
-                        "text": "Hello, this is a demo transcription.",
-                        "translation": "你好，这是一个演示转写结果。"
+                        "text": "Welcome! This is a demo transcription.",
+                        "translation": "欢迎！这是一个演示转写结果。"
                     },
                     {
                         "start": 5.0,
                         "end": 10.0,
-                        "text": "The deployment is working correctly!",
-                        "translation": "部署工作正常！"
+                        "text": "The deployment is working perfectly!",
+                        "translation": "部署工作完美运行！"
                     },
                     {
                         "start": 10.0,
                         "end": 15.0,
-                        "text": "AI transcription will be added soon.",
-                        "translation": "AI转写功能即将添加。"
+                        "text": "Real AI transcription coming soon.",
+                        "translation": "真实AI转写功能即将推出。"
+                    },
+                    {
+                        "start": 15.0,
+                        "end": 20.0,
+                        "text": "Thank you for testing our application.",
+                        "translation": "感谢您测试我们的应用程序。"
                     }
                 ]
             }
             
-            self.wfile.write(json.dumps(response).encode('utf-8'))
+            response.body = json.dumps(result)
             
         except Exception as e:
-            error_response = {
+            response.status_code = 500
+            response.body = json.dumps({
                 "error": str(e),
                 "message": "Error processing request"
-            }
-            self.wfile.write(json.dumps(error_response).encode('utf-8'))
+            })
     
-    def do_OPTIONS(self):
-        # 处理预检请求
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
-        
-    def do_GET(self):
-        # 健康检查
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.end_headers()
-        
-        response = {
-            "message": "YouTube Transcriber API",
-            "status": "healthy", 
-            "version": "1.0.0-vercel"
-        }
-        
-        self.wfile.write(json.dumps(response).encode('utf-8'))
+    return response
