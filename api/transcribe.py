@@ -1,69 +1,42 @@
+from http.server import BaseHTTPRequestHandler
 import json
 import yt_dlp
-from urllib.parse import parse_qs
 
-def handler(request):
-    # 设置CORS头
-    headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Content-Type': 'application/json'
-    }
-    
-    # 处理OPTIONS预检请求
-    if request.method == 'OPTIONS':
-        return {
-            'statusCode': 200,
-            'headers': headers,
-            'body': ''
-        }
-    
-    # 处理GET请求 - 健康检查
-    if request.method == 'GET':
-        response = {
-            "message": "YouTube Transcriber API",
-            "status": "healthy",
-            "version": "1.0.0-vercel"
-        }
-        return {
-            'statusCode': 200,
-            'headers': headers,
-            'body': json.dumps(response)
-        }
-    
-    # 处理POST请求 - 转写视频
-    if request.method == 'POST':
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        # 设置CORS头
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+        
         try:
-            # 解析请求数据
-            if hasattr(request, 'get_json'):
-                data = request.get_json()
+            # 读取请求数据
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 0:
+                post_data = self.rfile.read(content_length)
+                data = json.loads(post_data.decode('utf-8'))
+                url = data.get('url')
             else:
-                body = request.body if hasattr(request, 'body') else request.data
-                if isinstance(body, bytes):
-                    body = body.decode('utf-8')
-                data = json.loads(body)
-            
-            url = data.get('url')
+                url = None
             
             if not url:
-                return {
-                    'statusCode': 400,
-                    'headers': headers,
-                    'body': json.dumps({"error": "URL is required"})
-                }
+                error_response = {"error": "URL is required"}
+                self.wfile.write(json.dumps(error_response).encode('utf-8'))
+                return
             
             # 获取视频信息
-            ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-            }
-            
             try:
+                ydl_opts = {
+                    'quiet': True,
+                    'no_warnings': True,
+                }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
                     title = info.get('title', 'Unknown Video')
-            except Exception as yt_error:
+            except Exception:
                 title = "Video (Unable to fetch title)"
             
             # 返回演示数据
@@ -91,26 +64,34 @@ def handler(request):
                 ]
             }
             
-            return {
-                'statusCode': 200,
-                'headers': headers,
-                'body': json.dumps(response)
-            }
+            self.wfile.write(json.dumps(response).encode('utf-8'))
             
         except Exception as e:
             error_response = {
                 "error": str(e),
                 "message": "Error processing video"
             }
-            return {
-                'statusCode': 500,
-                'headers': headers,
-                'body': json.dumps(error_response)
-            }
+            self.wfile.write(json.dumps(error_response).encode('utf-8'))
     
-    # 不支持的方法
-    return {
-        'statusCode': 405,
-        'headers': headers,
-        'body': json.dumps({"error": "Method not allowed"})
-    }
+    def do_OPTIONS(self):
+        # 处理预检请求
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+        
+    def do_GET(self):
+        # 健康检查
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
+        response = {
+            "message": "YouTube Transcriber API",
+            "status": "healthy", 
+            "version": "1.0.0-vercel"
+        }
+        
+        self.wfile.write(json.dumps(response).encode('utf-8'))
