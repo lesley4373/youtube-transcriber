@@ -100,7 +100,19 @@ def translate_text(text: str, target_lang: str = 'zh-cn') -> str:
 
 @app.get("/")
 def read_root():
-    return {"message": "YouTube Transcriber API"}
+    return {
+        "message": "YouTube Transcriber API", 
+        "status": "healthy",
+        "version": "1.0.0",
+        "endpoints": {
+            "transcribe": "/transcribe",
+            "health": "/"
+        }
+    }
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "timestamp": "2024-01-01T00:00:00Z"}
 
 @app.post("/transcribe", response_model=TranscriptResponse)
 async def transcribe_video(request: VideoRequest):
