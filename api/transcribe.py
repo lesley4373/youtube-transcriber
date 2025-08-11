@@ -1,6 +1,5 @@
 from http.server import BaseHTTPRequestHandler
 import json
-import yt_dlp
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
@@ -18,26 +17,14 @@ class handler(BaseHTTPRequestHandler):
             if content_length > 0:
                 post_data = self.rfile.read(content_length)
                 data = json.loads(post_data.decode('utf-8'))
-                url = data.get('url')
+                url = data.get('url', 'Unknown Video')
             else:
-                url = None
+                url = "Unknown Video"
             
-            if not url:
-                error_response = {"error": "URL is required"}
-                self.wfile.write(json.dumps(error_response).encode('utf-8'))
-                return
-            
-            # 获取视频信息
-            try:
-                ydl_opts = {
-                    'quiet': True,
-                    'no_warnings': True,
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    title = info.get('title', 'Unknown Video')
-            except Exception:
-                title = "Video (Unable to fetch title)"
+            # 简单提取视频标题（从URL中）
+            title = "Unknown Video"
+            if 'youtu' in url:
+                title = "YouTube Video"
             
             # 返回演示数据
             response = {
@@ -69,7 +56,7 @@ class handler(BaseHTTPRequestHandler):
         except Exception as e:
             error_response = {
                 "error": str(e),
-                "message": "Error processing video"
+                "message": "Error processing request"
             }
             self.wfile.write(json.dumps(error_response).encode('utf-8'))
     
