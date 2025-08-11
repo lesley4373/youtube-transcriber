@@ -199,42 +199,16 @@ class handler(BaseHTTPRequestHandler):
                     print(f"Subtitle text processing complete, got {len(segments)} segments")
                     
                 else:
-                    # 先测试音频URL提取，不进行转录
+                    # 使用yt-dlp获取音频URL进行转录
                     try:
-                        print(f"Testing audio URL extraction...")
+                        print(f"Getting audio URL with yt-dlp...")
                         audio_url, video_title, debug_info = self.get_audio_url(url)
                         title = video_title
+                        print(f"Audio URL obtained, proceeding with transcription...")
                         
-                        # 返回详细的测试结果
-                        segments = [{
-                            "start": 0.0,
-                            "end": 5.0,
-                            "text": f"✓ 音频URL提取成功！",
-                            "translation": f"✓ Audio URL extraction successful!"
-                        }, {
-                            "start": 5.0,
-                            "end": 10.0,
-                            "text": f"URL: {audio_url[:100]}...",
-                            "translation": f"音频链接: {audio_url[:100]}..."
-                        }]
-                        
-                        # 添加调试信息段落
-                        for i, info in enumerate(debug_info):
-                            segments.append({
-                                "start": 15.0 + i * 2,
-                                "end": 17.0 + i * 2,
-                                "text": f"Debug: {info}",
-                                "translation": f"调试: {info}"
-                            })
-                        
-                        segments.append({
-                            "start": 15.0 + len(debug_info) * 2,
-                            "end": 20.0 + len(debug_info) * 2,
-                            "text": f"准备就绪，可以进行AI转录",
-                            "translation": f"Ready for AI transcription"
-                        })
-                        
-                        print(f"Audio URL extraction test successful")
+                        # 使用音频URL进行转录
+                        segments = self.transcribe_from_url(audio_url, client)
+                        print(f"Audio URL transcription complete, got {len(segments)} segments")
                         
                     except Exception as audio_error:
                         print(f"Audio URL method failed: {audio_error}")
