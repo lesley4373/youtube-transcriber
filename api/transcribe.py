@@ -1,45 +1,45 @@
+from http.server import BaseHTTPRequestHandler
 import json
 
-def handler(request, response):
-    """
-    Vercel serverless function handler
-    """
-    # Handle CORS
-    response.status_code = 200
-    response.headers = {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
-    }
+
+class handler(BaseHTTPRequestHandler):
+    def send_cors_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
     
-    # Handle OPTIONS request for CORS preflight
-    if request.method == 'OPTIONS':
-        return response
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_cors_headers()
+        self.end_headers()
     
-    # Handle GET request for health check
-    if request.method == 'GET':
-        response.body = json.dumps({
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_cors_headers()
+        self.end_headers()
+        
+        response = {
             "message": "YouTube Transcriber API",
             "status": "healthy",
             "version": "1.0.0-vercel"
-        })
-        return response
+        }
+        self.wfile.write(json.dumps(response).encode())
     
-    # Handle POST request for transcription
-    if request.method == 'POST':
+    def do_POST(self):
         try:
-            # Parse request body
-            body = json.loads(request.body) if request.body else {}
-            url = body.get('url', '')
+            # Read the request body
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length) if content_length else b'{}'
+            data = json.loads(body.decode())
             
-            # Simple title extraction from URL
-            title = "YouTube Video"
-            if 'youtu' in url.lower():
-                title = "YouTube Video (Demo Mode)"
+            # Get the URL from request
+            url = data.get('url', '')
             
-            # Return demo transcription data
-            result = {
+            # Create demo response
+            title = "YouTube Video (Demo Mode)" if 'youtu' in url.lower() else "Demo Video"
+            
+            response = {
                 "title": f"[DEMO] {title}",
                 "segments": [
                     {
@@ -69,13 +69,22 @@ def handler(request, response):
                 ]
             }
             
-            response.body = json.dumps(result)
+            # Send successful response
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode())
             
         except Exception as e:
-            response.status_code = 500
-            response.body = json.dumps({
+            # Send error response
+            self.send_response(500)
+            self.send_header('Content-Type', 'application/json')
+            self.send_cors_headers()
+            self.end_headers()
+            
+            error_response = {
                 "error": str(e),
                 "message": "Error processing request"
-            })
-    
-    return response
+            }
+            self.wfile.write(json.dumps(error_response).encode())
