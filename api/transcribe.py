@@ -27,9 +27,11 @@ class handler(BaseHTTPRequestHandler):
             "message": "YouTube Transcriber API",
             "status": "healthy",
             "version": "2.0.0-ai-updated",
-            "features": ["yt-dlp", "openai-whisper", "translation"]
+            "features": ["yt-dlp", "openai-whisper", "translation", "base64-upload"],
+            "timestamp": str(os.getenv('VERCEL_DEPLOYMENT_ID', 'local')),
+            "test": "API is working"
         }
-        self.wfile.write(json.dumps(response).encode())
+        self.wfile.write(json.dumps(response, ensure_ascii=False).encode('utf-8'))
     
     def do_POST(self):
         try:
@@ -62,6 +64,7 @@ class handler(BaseHTTPRequestHandler):
             
             if not api_key:
                 # 返回提示需要API密钥的演示数据
+                print("No API key provided, returning demo response")
                 response = {
                     "title": f"[需要API密钥] {title}",
                     "segments": [
@@ -69,13 +72,13 @@ class handler(BaseHTTPRequestHandler):
                             "start": 0.0,
                             "end": 5.0,
                             "text": "Please provide OpenAI API key for real transcription.",
-                            "translation": "请在Vercel设置中添加OPENAI_API_KEY环境变量，或在输入框中提供API密钥。"
+                            "translation": "请输入OpenAI API密钥以启用真实的AI转录功能。"
                         },
                         {
                             "start": 5.0,
                             "end": 10.0,
                             "text": "You can get your API key from platform.openai.com",
-                            "translation": "您可以从platform.openai.com获取API密钥。"
+                            "translation": "您可以从 platform.openai.com 获取API密钥。"
                         }
                     ]
                 }

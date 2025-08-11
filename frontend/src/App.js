@@ -37,35 +37,74 @@ function App() {
           ? `http://${window.location.hostname}:8000/transcribe`
           : `/api/transcribe`);
       
+      console.log('API URL:', apiUrl);
+      console.log('Input mode:', inputMode);
+      
       let response;
       if (inputMode === 'file' && audioFile) {
+        console.log('Processing file:', audioFile.name, 'Size:', audioFile.size);
+        
+        // 检查文件大小 (限制25MB)
+        if (audioFile.size > 25 * 1024 * 1024) {
+          throw new Error('文件太大，请选择25MB以内的文件');
+        }
+        
         // 将文件转换为base64
+        console.log('Converting file to base64...');
         const reader = new FileReader();
         const base64Promise = new Promise((resolve, reject) => {
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
+          reader.onload = () => {
+            console.log('File converted to base64, length:', reader.result.length);
+            resolve(reader.result);
+          };
+          reader.onerror = (error) => {
+            console.error('FileReader error:', error);
+            reject(error);
+          };
           reader.readAsDataURL(audioFile);
         });
         
         const base64Data = await base64Promise;
         
+        console.log('Sending request with base64 data...');
         // 发送base64数据
         response = await axios.post(apiUrl, {
           audio_base64: base64Data,
           filename: audioFile.name,
           api_key: apiKey
+        }, {
+          timeout: 300000 // 5分钟超时
         });
       } else {
+        console.log('Processing YouTube URL:', url);
         // YouTube URL
         response = await axios.post(apiUrl, { 
           url: url,
           api_key: apiKey 
+        }, {
+          timeout: 300000 // 5分钟超时
         });
       }
       
+      console.log('Response received:', response.data);
       setTranscript(response.data);
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.detail || 'An error occurred while processing');
+      console.error('Error details:', err);
+      console.error('Error response:', err.response);
+      
+      let errorMessage = 'An error occurred while processing';
+      
+      if (err.message) {
+        errorMessage = err.message;
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      } else if (err.response?.data?.detail) {
+        errorMessage = err.response.data.detail;
+      } else if (err.response?.status) {
+        errorMessage = `HTTP ${err.response.status}: ${err.response.statusText}`;
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
