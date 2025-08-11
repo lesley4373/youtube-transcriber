@@ -202,10 +202,10 @@ class handler(BaseHTTPRequestHandler):
                     # 先测试音频URL提取，不进行转录
                     try:
                         print(f"Testing audio URL extraction...")
-                        audio_url, video_title = self.get_audio_url(url)
+                        audio_url, video_title, debug_info = self.get_audio_url(url)
                         title = video_title
                         
-                        # 返回测试结果而不是转录
+                        # 返回详细的测试结果
                         segments = [{
                             "start": 0.0,
                             "end": 5.0,
@@ -216,16 +216,38 @@ class handler(BaseHTTPRequestHandler):
                             "end": 10.0,
                             "text": f"URL: {audio_url[:100]}...",
                             "translation": f"音频链接: {audio_url[:100]}..."
-                        }, {
-                            "start": 10.0,
-                            "end": 15.0,
+                        }]
+                        
+                        # 添加调试信息段落
+                        for i, info in enumerate(debug_info):
+                            segments.append({
+                                "start": 15.0 + i * 2,
+                                "end": 17.0 + i * 2,
+                                "text": f"Debug: {info}",
+                                "translation": f"调试: {info}"
+                            })
+                        
+                        segments.append({
+                            "start": 15.0 + len(debug_info) * 2,
+                            "end": 20.0 + len(debug_info) * 2,
                             "text": f"准备就绪，可以进行AI转录",
                             "translation": f"Ready for AI transcription"
-                        }]
+                        })
+                        
                         print(f"Audio URL extraction test successful")
                         
                     except Exception as audio_error:
                         print(f"Audio URL method failed: {audio_error}")
+                        
+                        # 显示详细的错误信息
+                        error_msg = str(audio_error)
+                        if "|" in error_msg:
+                            main_error, debug_part = error_msg.split("|", 1)
+                            debug_details = debug_part.replace("调试信息:", "").strip().split("|")
+                        else:
+                            main_error = error_msg
+                            debug_details = []
+                        
                         # 回退到字幕提取方法
                         try:
                             print(f"Falling back to subtitle extraction...")
@@ -235,8 +257,37 @@ class handler(BaseHTTPRequestHandler):
                             print(f"Subtitle extraction complete, got {len(segments)} segments")
                         except Exception as subtitle_error:
                             print(f"Both methods failed. Audio: {audio_error}, Subtitle: {subtitle_error}")
-                            # 返回友好的错误提示
-                            raise Exception(f"YouTube访问被限制。请尝试: 1) 使用'Paste Subtitles'功能手动粘贴字幕, 2) 上传音频文件, 或 3) 稍后重试")
+                            
+                            # 返回详细的失败信息
+                            segments = [{
+                                "start": 0.0,
+                                "end": 5.0,
+                                "text": f"❌ 音频URL提取失败",
+                                "translation": f"❌ Audio URL extraction failed"
+                            }, {
+                                "start": 5.0,
+                                "end": 10.0,
+                                "text": f"错误: {main_error[:100]}",
+                                "translation": f"Error: {main_error[:100]}"
+                            }]
+                            
+                            # 添加调试详情
+                            for i, detail in enumerate(debug_details[:5]):  # 限制显示5条
+                                segments.append({
+                                    "start": 10.0 + i * 3,
+                                    "end": 13.0 + i * 3,
+                                    "text": f"Debug {i+1}: {detail.strip()[:80]}",
+                                    "translation": f"调试 {i+1}: {detail.strip()[:80]}"
+                                })
+                            
+                            segments.append({
+                                "start": 25.0,
+                                "end": 30.0,
+                                "text": f"建议使用 'Paste Subtitles' 功能",
+                                "translation": f"Please try 'Paste Subtitles' feature"
+                            })
+                            
+                            title = "调试信息 - Debug Info"
                 
                 # 翻译
                 print(f"Starting translation...")
@@ -601,8 +652,11 @@ class handler(BaseHTTPRequestHandler):
     
     def get_audio_url(self, url):
         """Extract direct audio URL from YouTube without downloading"""
+        debug_info = []
+        
         try:
             print(f"Extracting audio URL from: {url}")
+            debug_info.append(f"开始提取: {url}")
             
             # 尝试多种格式和策略
             format_attempts = [
@@ -612,14 +666,15 @@ class handler(BaseHTTPRequestHandler):
                 'bestaudio'  # 最佳音频
             ]
             
-            for format_str in format_attempts:
+            for i, format_str in enumerate(format_attempts):
                 try:
                     print(f"Trying format: {format_str}")
+                    debug_info.append(f"尝试格式 {i+1}/4: {format_str}")
                     
                     ydl_opts = {
                         'format': format_str,
-                        'quiet': True,
-                        'no_warnings': True,
+                        'quiet': False,  # 显示详细信息
+                        'no_warnings': False,  # 显示警告
                         # 增强反检测措施
                         'http_headers': {
                             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -648,26 +703,40 @@ class handler(BaseHTTPRequestHandler):
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(url, download=False)
                         if not info:
+                            debug_info.append(f"格式 {format_str}: 无法获取视频信息")
                             continue
+                        
+                        # 调试信息
+                        debug_info.append(f"视频标题: {info.get('title', 'Unknown')}")
+                        debug_info.append(f"视频时长: {info.get('duration', 'Unknown')}秒")
+                        debug_info.append(f"可用格式数量: {len(info.get('formats', []))}")
                         
                         # 获取音频URL
                         audio_url = info.get('url')
                         video_title = info.get('title', 'Unknown Video')
                         
                         if audio_url:
+                            debug_info.append(f"✓ 成功提取音频URL (格式: {format_str})")
+                            debug_info.append(f"音频URL长度: {len(audio_url)} 字符")
                             print(f"Successfully got audio URL with format: {format_str}")
                             print(f"Got audio URL: {audio_url[:100]}...")
-                            return audio_url, video_title
+                            return audio_url, video_title, debug_info
+                        else:
+                            debug_info.append(f"格式 {format_str}: URL为空")
                             
                 except Exception as format_error:
+                    error_msg = str(format_error)
                     print(f"Format {format_str} failed: {format_error}")
+                    debug_info.append(f"格式 {format_str} 失败: {error_msg[:100]}")
                     continue
             
+            debug_info.append("所有格式提取尝试都失败了")
             raise Exception("所有音频格式提取尝试都失败了")
                 
         except Exception as e:
             print(f"Audio URL extraction error: {e}")
-            raise Exception(f"音频URL提取失败: {str(e)}")
+            debug_info.append(f"总体错误: {str(e)}")
+            raise Exception(f"音频URL提取失败: {str(e)} | 调试信息: {' | '.join(debug_info)}")
 
     def transcribe_from_url(self, audio_url, client):
         """Transcribe audio from direct URL using OpenAI Whisper"""
