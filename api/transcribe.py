@@ -124,7 +124,7 @@ class handler(BaseHTTPRequestHandler):
             unique_id = str(uuid.uuid4())[:8]
             output_path = os.path.join(temp_dir, f'audio_{unique_id}')
             
-            # 简化配置，不使用FFmpeg后处理（避免Vercel环境问题）
+            # 优化配置，增强反检测能力
             ydl_opts = {
                 'format': 'bestaudio[ext=m4a][filesize<25M]/bestaudio[filesize<25M]/best[filesize<25M]',
                 'outtmpl': output_path + '.%(ext)s',
@@ -132,18 +132,30 @@ class handler(BaseHTTPRequestHandler):
                 'no_warnings': True,
                 'prefer_ffmpeg': False,  # 不强制使用FFmpeg
                 'extract_flat': False,
-                # 添加反检测措施
+                # 增强反检测措施
                 'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-us,en;q=0.5',
-                    'Accept-Encoding': 'gzip,deflate',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+                    'Accept-Encoding': 'gzip, deflate, br',
                     'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1'
+                    'Upgrade-Insecure-Requests': '1',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-User': '?1',
+                    'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                    'sec-ch-ua-mobile': '?0',
+                    'sec-ch-ua-platform': '"Windows"'
                 },
-                'extractor_retries': 3,
-                'sleep_interval': 1,
-                'max_sleep_interval': 5,
+                'extractor_retries': 5,
+                'sleep_interval': 2,
+                'max_sleep_interval': 10,
+                'skip_unavailable_fragments': True,
+                'ignoreerrors': False,
+                # 添加cookies支持（模拟真实用户）
+                'cookiefile': None,
+                'cookiesfrombrowser': None,
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -242,20 +254,29 @@ class handler(BaseHTTPRequestHandler):
                 'quiet': True, 
                 'no_warnings': True,
                 'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-us,en;q=0.5',
-                    'Accept-Encoding': 'gzip,deflate',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+                    'Accept-Encoding': 'gzip, deflate, br',
                     'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1'
+                    'Upgrade-Insecure-Requests': '1',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-User': '?1',
+                    'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                    'sec-ch-ua-mobile': '?0',
+                    'sec-ch-ua-platform': '"Windows"'
                 },
-                'extractor_retries': 3,
-                'sleep_interval': 1,
+                'extractor_retries': 5,
+                'sleep_interval': 2,
+                'skip_unavailable_fragments': True,
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 return info.get('title', 'Unknown Video')
-        except:
+        except Exception as e:
+            print(f"Title extraction error: {e}")
             return "YouTube Video"
     
     def send_success_response(self, data):
