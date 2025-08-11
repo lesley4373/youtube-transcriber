@@ -3,6 +3,8 @@ import json
 import os
 import tempfile
 import yt_dlp
+import base64
+from urllib.parse import parse_qs
 
 class handler(BaseHTTPRequestHandler):
     def send_cors_headers(self):
@@ -34,17 +36,31 @@ class handler(BaseHTTPRequestHandler):
             # Read request body
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length) if content_length else b'{}'
-            data = json.loads(body.decode())
+            
+            # 检查Content-Type以确定处理方式
+            content_type = self.headers.get('Content-Type', '')
+            
+            if content_type.startswith('multipart/form-data'):
+                # 处理文件上传
+                boundary = content_type.split('boundary=')[1]
+                data, audio_file = self.parse_multipart(body, boundary)
+            else:
+                # 处理JSON数据
+                data = json.loads(body.decode())
+                audio_file = None
             
             url = data.get('url', '')
             api_key = data.get('api_key', os.environ.get('OPENAI_API_KEY', ''))
             
-            if not url:
-                self.send_error_response(400, "URL is required")
+            if not url and not audio_file:
+                self.send_error_response(400, "URL or audio file is required")
                 return
             
-            # 获取视频标题
-            title = self.get_video_title(url)
+            # 获取标题
+            if url:
+                title = self.get_video_title(url)
+            else:
+                title = "Uploaded Audio File"
             
             if not api_key:
                 # 返回提示需要API密钥的演示数据
@@ -74,12 +90,17 @@ class handler(BaseHTTPRequestHandler):
                 from openai import OpenAI
                 from deep_translator import GoogleTranslator
                 
-                # 下载音频
-                audio_file = self.download_audio(url)
+                # 获取音频文件
+                if audio_file:
+                    # 使用上传的音频文件
+                    final_audio_file = audio_file
+                else:
+                    # 从YouTube下载音频
+                    final_audio_file = self.download_audio(url)
                 
                 # 转写
                 client = OpenAI(api_key=api_key)
-                segments = self.transcribe_audio(audio_file, client)
+                segments = self.transcribe_audio(final_audio_file, client)
                 
                 # 翻译
                 translator = GoogleTranslator(source='en', target='zh-cn')
@@ -87,7 +108,7 @@ class handler(BaseHTTPRequestHandler):
                 
                 # 清理文件
                 try:
-                    os.remove(audio_file)
+                    os.remove(final_audio_file)
                 except:
                     pass
                 
@@ -114,6 +135,49 @@ class handler(BaseHTTPRequestHandler):
                 
         except Exception as e:
             self.send_error_response(500, f"Request error: {str(e)}")
+    
+    def parse_multipart(self, body, boundary):
+        """Parse multipart/form-data"""
+        try:
+            boundary_bytes = boundary.encode()
+            parts = body.split(b'--' + boundary_bytes)
+            
+            data = {}
+            audio_file = None
+            
+            for part in parts:
+                if b'Content-Disposition' not in part:
+                    continue
+                    
+                # 提取头部和内容
+                if b'\r\n\r\n' in part:
+                    header, content = part.split(b'\r\n\r\n', 1)
+                    header_str = header.decode()
+                    
+                    # 提取字段名
+                    if 'name="' in header_str:
+                        field_name = header_str.split('name="')[1].split('"')[0]
+                        
+                        if field_name == 'audio':
+                            # 保存音频文件
+                            temp_dir = '/tmp'
+                            import uuid
+                            unique_id = str(uuid.uuid4())[:8]
+                            audio_filename = os.path.join(temp_dir, f'uploaded_{unique_id}.mp3')
+                            
+                            with open(audio_filename, 'wb') as f:
+                                f.write(content.rstrip(b'\r\n'))
+                            
+                            audio_file = audio_filename
+                        else:
+                            # 其他字段
+                            data[field_name] = content.decode().rstrip('\r\n')
+            
+            return data, audio_file
+            
+        except Exception as e:
+            print(f"Multipart parsing error: {e}")
+            return {}, None
     
     def download_audio(self, url):
         """Download audio from YouTube - Optimized for Vercel"""

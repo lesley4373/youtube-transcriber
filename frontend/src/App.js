@@ -4,11 +4,13 @@ import './App.css';
 
 function App() {
   const [url, setUrl] = useState('');
+  const [audioFile, setAudioFile] = useState(null);
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [transcript, setTranscript] = useState(null);
   const [error, setError] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
+  const [inputMode, setInputMode] = useState('url'); // 'url' or 'file'
 
   const formatTime = (seconds) => {
     const h = Math.floor(seconds / 3600);
@@ -35,13 +37,29 @@ function App() {
           ? `http://${window.location.hostname}:8000/transcribe`
           : `/api/transcribe`);
       
-      const response = await axios.post(apiUrl, { 
-        url: url,
-        api_key: apiKey 
-      });
+      let response;
+      if (inputMode === 'file' && audioFile) {
+        // 上传音频文件
+        const formData = new FormData();
+        formData.append('audio', audioFile);
+        formData.append('api_key', apiKey);
+        
+        response = await axios.post(apiUrl, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        });
+      } else {
+        // YouTube URL
+        response = await axios.post(apiUrl, { 
+          url: url,
+          api_key: apiKey 
+        });
+      }
+      
       setTranscript(response.data);
     } catch (err) {
-      setError(err.response?.data?.detail || 'An error occurred while processing the video');
+      setError(err.response?.data?.error || err.response?.data?.detail || 'An error occurred while processing');
     } finally {
       setLoading(false);
     }
@@ -55,15 +73,42 @@ function App() {
       </header>
 
       <main>
+        <div className="input-mode-selector">
+          <button 
+            type="button"
+            className={inputMode === 'url' ? 'active' : ''}
+            onClick={() => setInputMode('url')}
+          >
+            YouTube URL
+          </button>
+          <button 
+            type="button"
+            className={inputMode === 'file' ? 'active' : ''}
+            onClick={() => setInputMode('file')}
+          >
+            Upload Audio
+          </button>
+        </div>
+
         <form onSubmit={handleSubmit} className="url-form">
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="Enter YouTube video URL..."
-            required
-            className="url-input"
-          />
+          {inputMode === 'url' ? (
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="Enter YouTube video URL..."
+              required
+              className="url-input"
+            />
+          ) : (
+            <input
+              type="file"
+              onChange={(e) => setAudioFile(e.target.files[0])}
+              accept="audio/*,video/*"
+              required
+              className="file-input"
+            />
+          )}
           <div className="api-key-section">
             <input
               type={showApiKey ? "text" : "password"}
