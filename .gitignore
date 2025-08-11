@@ -1,0 +1,79 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.env
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+frontend.log
+server.log
+tunnel.log
+localtunnel.log
+serveo.log
+ngrok.log
+
+# Build outputs
+build/
+dist/
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# API keys and secrets
+.env.local
+.env.production
+config.json
+
+# Cache
+.cache/
+*.cache
+
+# Audio files
+*.mp3
+*.mp4
+*.wav
+
+# Test files
+test-api.html
