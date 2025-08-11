@@ -4,9 +4,11 @@ import './App.css';
 
 function App() {
   const [url, setUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [transcript, setTranscript] = useState(null);
   const [error, setError] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
 
   const formatTime = (seconds) => {
     const h = Math.floor(seconds / 3600);
@@ -33,7 +35,10 @@ function App() {
           ? `http://${window.location.hostname}:8000/transcribe`
           : `/api/transcribe`);
       
-      const response = await axios.post(apiUrl, { url });
+      const response = await axios.post(apiUrl, { 
+        url: url,
+        api_key: apiKey 
+      });
       setTranscript(response.data);
     } catch (err) {
       setError(err.response?.data?.detail || 'An error occurred while processing the video');
@@ -59,6 +64,22 @@ function App() {
             required
             className="url-input"
           />
+          <div className="api-key-section">
+            <input
+              type={showApiKey ? "text" : "password"}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="OpenAI API Key (optional for demo)"
+              className="api-key-input"
+            />
+            <button 
+              type="button" 
+              onClick={() => setShowApiKey(!showApiKey)}
+              className="toggle-btn"
+            >
+              {showApiKey ? '🙈' : '👁️'}
+            </button>
+          </div>
           <button type="submit" disabled={loading} className="submit-btn">
             {loading ? 'Processing...' : 'Transcribe'}
           </button>
