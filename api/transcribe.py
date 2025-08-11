@@ -94,23 +94,39 @@ class handler(BaseHTTPRequestHandler):
                 if audio_file:
                     # 使用上传的音频文件
                     final_audio_file = audio_file
+                    print(f"Using uploaded audio file: {final_audio_file}")
+                    # 检查文件是否存在和大小
+                    if os.path.exists(final_audio_file):
+                        file_size = os.path.getsize(final_audio_file)
+                        print(f"File exists, size: {file_size} bytes")
+                        if file_size == 0:
+                            raise Exception("上传的文件为空")
+                    else:
+                        raise Exception(f"上传的文件不存在: {final_audio_file}")
                 else:
                     # 从YouTube下载音频
                     final_audio_file = self.download_audio(url)
+                    print(f"Downloaded audio from YouTube: {final_audio_file}")
                 
                 # 转写
+                print(f"Starting transcription with OpenAI...")
                 client = OpenAI(api_key=api_key)
                 segments = self.transcribe_audio(final_audio_file, client)
+                print(f"Transcription complete, got {len(segments)} segments")
                 
                 # 翻译
+                print(f"Starting translation...")
                 translator = GoogleTranslator(source='en', target='zh-cn')
                 translated_segments = self.translate_segments(segments, translator)
+                print(f"Translation complete")
                 
                 # 清理文件
                 try:
-                    os.remove(final_audio_file)
-                except:
-                    pass
+                    if os.path.exists(final_audio_file):
+                        os.remove(final_audio_file)
+                        print(f"Cleaned up file: {final_audio_file}")
+                except Exception as cleanup_error:
+                    print(f"Cleanup error: {cleanup_error}")
                 
                 response = {
                     "title": title,
@@ -139,6 +155,10 @@ class handler(BaseHTTPRequestHandler):
     def parse_multipart(self, body, boundary):
         """Parse multipart/form-data"""
         try:
+            # 处理boundary格式
+            if boundary.startswith('"') and boundary.endswith('"'):
+                boundary = boundary[1:-1]
+            
             boundary_bytes = boundary.encode()
             parts = body.split(b'--' + boundary_bytes)
             
@@ -152,31 +172,46 @@ class handler(BaseHTTPRequestHandler):
                 # 提取头部和内容
                 if b'\r\n\r\n' in part:
                     header, content = part.split(b'\r\n\r\n', 1)
-                    header_str = header.decode()
+                    header_str = header.decode('utf-8', errors='ignore')
                     
                     # 提取字段名
                     if 'name="' in header_str:
                         field_name = header_str.split('name="')[1].split('"')[0]
                         
                         if field_name == 'audio':
+                            # 获取文件扩展名
+                            file_ext = '.mp3'
+                            if 'filename="' in header_str:
+                                filename = header_str.split('filename="')[1].split('"')[0]
+                                if '.' in filename:
+                                    file_ext = '.' + filename.split('.')[-1]
+                            
                             # 保存音频文件
                             temp_dir = '/tmp'
                             import uuid
                             unique_id = str(uuid.uuid4())[:8]
-                            audio_filename = os.path.join(temp_dir, f'uploaded_{unique_id}.mp3')
+                            audio_filename = os.path.join(temp_dir, f'uploaded_{unique_id}{file_ext}')
+                            
+                            # 去除尾部的boundary标记
+                            content = content.rstrip(b'\r\n--')
                             
                             with open(audio_filename, 'wb') as f:
-                                f.write(content.rstrip(b'\r\n'))
+                                f.write(content)
                             
                             audio_file = audio_filename
+                            print(f"Saved uploaded file: {audio_filename}, size: {len(content)} bytes")
                         else:
                             # 其他字段
-                            data[field_name] = content.decode().rstrip('\r\n')
+                            content_str = content.decode('utf-8', errors='ignore').rstrip('\r\n--')
+                            data[field_name] = content_str
+                            print(f"Parsed field {field_name}: {content_str[:50]}...")
             
             return data, audio_file
             
         except Exception as e:
             print(f"Multipart parsing error: {e}")
+            import traceback
+            traceback.print_exc()
             return {}, None
     
     def download_audio(self, url):
@@ -254,6 +289,15 @@ class handler(BaseHTTPRequestHandler):
     def transcribe_audio(self, audio_file, client):
         """Transcribe using OpenAI Whisper"""
         try:
+            # 获取文件扩展名
+            file_ext = os.path.splitext(audio_file)[1].lower()
+            
+            # OpenAI支持的格式
+            supported_formats = ['.mp3', '.mp4', '.m4a', '.wav', '.webm', '.mpeg', '.mpga']
+            
+            if file_ext not in supported_formats:
+                print(f"Warning: File format {file_ext} may not be supported")
+            
             with open(audio_file, 'rb') as audio:
                 response = client.audio.transcriptions.create(
                     model="whisper-1",
