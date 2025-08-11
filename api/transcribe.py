@@ -76,8 +76,6 @@ class handler(BaseHTTPRequestHandler):
                 
                 # 下载音频
                 audio_file = self.download_audio(url)
-                if not audio_file:
-                    raise Exception("音频下载失败")
                 
                 # 转写
                 client = OpenAI(api_key=api_key)
@@ -118,39 +116,52 @@ class handler(BaseHTTPRequestHandler):
             self.send_error_response(500, f"Request error: {str(e)}")
     
     def download_audio(self, url):
-        """Download audio from YouTube"""
+        """Download audio from YouTube - Optimized for Vercel"""
         try:
-            temp_dir = tempfile.mkdtemp()
-            output_path = os.path.join(temp_dir, 'audio')
+            # 使用/tmp目录，Vercel中唯一可写的目录
+            temp_dir = '/tmp'
+            import uuid
+            unique_id = str(uuid.uuid4())[:8]
+            output_path = os.path.join(temp_dir, f'audio_{unique_id}')
             
+            # 简化配置，不使用FFmpeg后处理（避免Vercel环境问题）
             ydl_opts = {
-                'format': 'bestaudio[filesize<25M]/best[filesize<25M]',
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '128',
-                }],
+                'format': 'bestaudio[ext=m4a][filesize<25M]/bestaudio[filesize<25M]/best[filesize<25M]',
                 'outtmpl': output_path + '.%(ext)s',
                 'quiet': True,
                 'no_warnings': True,
+                'prefer_ffmpeg': False,  # 不强制使用FFmpeg
+                'extract_flat': False,
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # 首先获取视频信息
+                info = ydl.extract_info(url, download=False)
+                if not info:
+                    raise Exception("无法获取视频信息")
+                
+                # 检查视频长度（限制在10分钟内）
+                duration = info.get('duration', 0)
+                if duration > 600:  # 10分钟
+                    raise Exception("视频太长，请使用10分钟以内的视频")
+                
+                # 下载音频
                 ydl.download([url])
             
             # 查找下载的文件
             for file in os.listdir(temp_dir):
-                if file.endswith('.mp3'):
+                if file.startswith(f'audio_{unique_id}') and (file.endswith('.m4a') or file.endswith('.mp3') or file.endswith('.webm')):
                     file_path = os.path.join(temp_dir, file)
                     # 检查文件大小
-                    if os.path.getsize(file_path) < 25 * 1024 * 1024:  # 25MB
+                    file_size = os.path.getsize(file_path)
+                    if file_size < 25 * 1024 * 1024 and file_size > 0:  # 25MB且不为空
                         return file_path
             
-            return None
+            raise Exception("下载的音频文件未找到或为空")
             
         except Exception as e:
             print(f"Download error: {e}")
-            return None
+            raise Exception(f"音频下载失败: {str(e)}")
     
     def transcribe_audio(self, audio_file, client):
         """Transcribe using OpenAI Whisper"""
