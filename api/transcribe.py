@@ -132,6 +132,18 @@ class handler(BaseHTTPRequestHandler):
                 'no_warnings': True,
                 'prefer_ffmpeg': False,  # 不强制使用FFmpeg
                 'extract_flat': False,
+                # 添加反检测措施
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-us,en;q=0.5',
+                    'Accept-Encoding': 'gzip,deflate',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1'
+                },
+                'extractor_retries': 3,
+                'sleep_interval': 1,
+                'max_sleep_interval': 5,
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -226,7 +238,20 @@ class handler(BaseHTTPRequestHandler):
     def get_video_title(self, url):
         """Get YouTube video title"""
         try:
-            ydl_opts = {'quiet': True, 'no_warnings': True}
+            ydl_opts = {
+                'quiet': True, 
+                'no_warnings': True,
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-us,en;q=0.5',
+                    'Accept-Encoding': 'gzip,deflate',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1'
+                },
+                'extractor_retries': 3,
+                'sleep_interval': 1,
+            }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 return info.get('title', 'Unknown Video')
