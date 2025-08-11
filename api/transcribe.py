@@ -199,13 +199,31 @@ class handler(BaseHTTPRequestHandler):
                     print(f"Subtitle text processing complete, got {len(segments)} segments")
                     
                 else:
-                    # 尝试直接获取音频URL进行转录（更高质量）
+                    # 先测试音频URL提取，不进行转录
                     try:
-                        print(f"Trying audio URL extraction method...")
+                        print(f"Testing audio URL extraction...")
                         audio_url, video_title = self.get_audio_url(url)
                         title = video_title
-                        segments = self.transcribe_from_url(audio_url, client)
-                        print(f"Audio URL transcription complete, got {len(segments)} segments")
+                        
+                        # 返回测试结果而不是转录
+                        segments = [{
+                            "start": 0.0,
+                            "end": 5.0,
+                            "text": f"✓ 音频URL提取成功！",
+                            "translation": f"✓ Audio URL extraction successful!"
+                        }, {
+                            "start": 5.0,
+                            "end": 10.0,
+                            "text": f"URL: {audio_url[:100]}...",
+                            "translation": f"音频链接: {audio_url[:100]}..."
+                        }, {
+                            "start": 10.0,
+                            "end": 15.0,
+                            "text": f"准备就绪，可以进行AI转录",
+                            "translation": f"Ready for AI transcription"
+                        }]
+                        print(f"Audio URL extraction test successful")
+                        
                     except Exception as audio_error:
                         print(f"Audio URL method failed: {audio_error}")
                         # 回退到字幕提取方法
