@@ -26,9 +26,11 @@ function App() {
     setTranscript(null);
 
     try {
-      // 动态获取API地址
-      const host = window.location.hostname;
-      const apiUrl = `http://${host}:8000/transcribe`;
+      // 动态获取API地址 - 支持生产环境
+      const apiUrl = process.env.REACT_APP_API_URL 
+        ? `${process.env.REACT_APP_API_URL}/transcribe`
+        : `http://${window.location.hostname}:8000/transcribe`;
+      
       const response = await axios.post(apiUrl, { url });
       setTranscript(response.data);
     } catch (err) {
