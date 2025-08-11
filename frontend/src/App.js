@@ -5,12 +5,13 @@ import './App.css';
 function App() {
   const [url, setUrl] = useState('');
   const [audioFile, setAudioFile] = useState(null);
+  const [subtitleText, setSubtitleText] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [transcript, setTranscript] = useState(null);
   const [error, setError] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
-  const [inputMode, setInputMode] = useState('url'); // 'url' or 'file'
+  const [inputMode, setInputMode] = useState('url'); // 'url', 'file', or 'text'
 
   const formatTime = (seconds) => {
     const h = Math.floor(seconds / 3600);
@@ -75,6 +76,15 @@ function App() {
         }, {
           timeout: 300000 // 5分钟超时
         });
+      } else if (inputMode === 'text' && subtitleText) {
+        console.log('Processing subtitle text...');
+        // 字幕文本
+        response = await axios.post(apiUrl, {
+          subtitle_text: subtitleText,
+          api_key: apiKey
+        }, {
+          timeout: 60000 // 1分钟超时
+        });
       } else {
         console.log('Processing YouTube URL:', url);
         // YouTube URL
@@ -133,6 +143,13 @@ function App() {
           >
             Upload Audio
           </button>
+          <button 
+            type="button"
+            className={inputMode === 'text' ? 'active' : ''}
+            onClick={() => setInputMode('text')}
+          >
+            Paste Subtitles
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="url-form">
@@ -145,7 +162,7 @@ function App() {
               required
               className="url-input"
             />
-          ) : (
+          ) : inputMode === 'file' ? (
             <input
               type="file"
               onChange={(e) => setAudioFile(e.target.files[0])}
@@ -153,6 +170,26 @@ function App() {
               required
               className="file-input"
             />
+          ) : (
+            <div className="subtitle-input-container">
+              <textarea
+                value={subtitleText}
+                onChange={(e) => setSubtitleText(e.target.value)}
+                placeholder="Paste YouTube subtitles here...
+Example format:
+0:00 Hello everyone
+0:05 Welcome to this video
+0:10 Today we will learn..."
+                required
+                className="subtitle-textarea"
+                rows="8"
+              />
+              <div className="subtitle-help">
+                <p><strong>How to get YouTube subtitles:</strong></p>
+                <p>1. Open video → Click CC button → Right-click subtitle → Copy text</p>
+                <p>2. Or use browser extensions to extract subtitles</p>
+              </div>
+            </div>
           )}
           <div className="api-key-section">
             <input

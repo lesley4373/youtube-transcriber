@@ -47,19 +47,22 @@ class handler(BaseHTTPRequestHandler):
             api_key = data.get('api_key', os.environ.get('OPENAI_API_KEY', ''))
             audio_base64 = data.get('audio_base64', '')
             filename = data.get('filename', 'audio.mp3')
+            subtitle_text = data.get('subtitle_text', '')
             
             # 处理base64音频文件
             audio_file = None
             if audio_base64:
                 audio_file = self.save_base64_audio(audio_base64, filename)
             
-            if not url and not audio_file:
-                self.send_error_response(400, "URL or audio file is required")
+            if not url and not audio_file and not subtitle_text:
+                self.send_error_response(400, "URL, audio file, or subtitle text is required")
                 return
             
             # 获取标题
             if url:
                 title = self.get_video_title(url)
+            elif subtitle_text:
+                title = "Pasted Subtitles"
             else:
                 title = "Uploaded Audio File"
             
@@ -88,6 +91,39 @@ class handler(BaseHTTPRequestHandler):
                     }
                     self.send_success_response(response)
                     return
+                elif subtitle_text:
+                    # 字幕文本处理，无需API密钥但无翻译
+                    try:
+                        segments = self.parse_simple_subtitles(subtitle_text)
+                        translated_segments = []
+                        for seg in segments:
+                            translated_segments.append({
+                                "start": seg['start'],
+                                "end": seg['end'],
+                                "text": seg['text'],
+                                "translation": f"[需要API密钥进行翻译] {seg['text'][:30]}..."
+                            })
+                        
+                        response = {
+                            "title": f"[仅英文] {title}",
+                            "segments": translated_segments
+                        }
+                        self.send_success_response(response)
+                        return
+                    except Exception as e:
+                        response = {
+                            "title": f"[解析失败] {title}",
+                            "segments": [
+                                {
+                                    "start": 0.0,
+                                    "end": 5.0,
+                                    "text": f"Subtitle parsing failed: {str(e)}",
+                                    "translation": f"字幕解析失败: {str(e)}"
+                                }
+                            ]
+                        }
+                        self.send_success_response(response)
+                        return
                 else:
                     # YouTube字幕提取不需要API密钥，但翻译需要
                     try:
@@ -155,6 +191,12 @@ class handler(BaseHTTPRequestHandler):
                     client = OpenAI(api_key=api_key)
                     segments = self.transcribe_audio(final_audio_file, client)
                     print(f"Transcription complete, got {len(segments)} segments")
+                    
+                elif subtitle_text:
+                    # 处理粘贴的字幕文本
+                    print(f"Processing pasted subtitle text...")
+                    segments = self.parse_simple_subtitles(subtitle_text)
+                    print(f"Subtitle text processing complete, got {len(segments)} segments")
                     
                 else:
                     # 从YouTube提取字幕（更快、更可靠）
@@ -467,6 +509,63 @@ class handler(BaseHTTPRequestHandler):
             return total_seconds
         except:
             return 0.0
+    
+    def parse_simple_subtitles(self, subtitle_text):
+        """Parse simple subtitle text format"""
+        try:
+            segments = []
+            lines = subtitle_text.strip().split('\n')
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # 尝试解析时间戳格式: "0:00 Text" 或 "0:00:00 Text"
+                time_match = re.match(r'^(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+)$', line)
+                if time_match:
+                    time_str = time_match.group(1)
+                    text = time_match.group(2)
+                    
+                    # 转换时间为秒
+                    time_parts = time_str.split(':')
+                    if len(time_parts) == 2:  # MM:SS
+                        start_time = int(time_parts[0]) * 60 + int(time_parts[1])
+                    else:  # HH:MM:SS
+                        start_time = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
+                    
+                    segments.append({
+                        'start': start_time,
+                        'end': start_time + 5,  # 默认5秒段落
+                        'text': text
+                    })
+                else:
+                    # 如果没有时间戳，创建连续的段落
+                    start_time = len(segments) * 5
+                    segments.append({
+                        'start': start_time,
+                        'end': start_time + 5,
+                        'text': line
+                    })
+            
+            if not segments:
+                # 如果没有解析出任何段落，将整个文本作为一个段落
+                segments.append({
+                    'start': 0.0,
+                    'end': 30.0,
+                    'text': subtitle_text[:500] + ('...' if len(subtitle_text) > 500 else '')
+                })
+            
+            print(f"Parsed {len(segments)} simple subtitle segments")
+            return segments
+            
+        except Exception as e:
+            print(f"Simple subtitle parsing error: {e}")
+            return [{
+                'start': 0.0,
+                'end': 10.0,
+                'text': subtitle_text[:200] + ('...' if len(subtitle_text) > 200 else '')
+            }]
     
     def transcribe_audio(self, audio_file, client):
         """Transcribe using OpenAI Whisper"""

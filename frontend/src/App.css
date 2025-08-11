@@ -296,6 +296,47 @@ body {
   border-color: #667eea;
 }
 
+/* Subtitle input styles */
+.subtitle-input-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.subtitle-textarea {
+  padding: 12px 16px;
+  font-size: 14px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  transition: border-color 0.3s;
+  background: white;
+  font-family: 'Courier New', monospace;
+  resize: vertical;
+  min-height: 120px;
+}
+
+.subtitle-textarea:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.subtitle-help {
+  background: #f8f9fa;
+  padding: 10px;
+  border-radius: 6px;
+  border-left: 4px solid #667eea;
+  font-size: 13px;
+  color: #666;
+}
+
+.subtitle-help p {
+  margin: 5px 0;
+}
+
+.subtitle-help strong {
+  color: #333;
+}
+
 @media (max-width: 768px) {
   .App-header h1 {
     font-size: 1.8rem;
