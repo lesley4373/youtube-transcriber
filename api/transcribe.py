@@ -72,7 +72,7 @@ class handler(BaseHTTPRequestHandler):
             try:
                 # 只有有API密钥时才导入这些包
                 from openai import OpenAI
-                from googletrans import Translator
+                from deep_translator import GoogleTranslator
                 
                 # 下载音频
                 audio_file = self.download_audio(url)
@@ -84,7 +84,7 @@ class handler(BaseHTTPRequestHandler):
                 segments = self.transcribe_audio(audio_file, client)
                 
                 # 翻译
-                translator = Translator()
+                translator = GoogleTranslator(source='en', target='zh-cn')
                 translated_segments = self.translate_segments(segments, translator)
                 
                 # 清理文件
@@ -191,16 +191,16 @@ class handler(BaseHTTPRequestHandler):
             }]
     
     def translate_segments(self, segments, translator):
-        """Translate to Chinese"""
+        """Translate to Chinese using deep-translator"""
         translated = []
         for seg in segments:
             try:
-                translation = translator.translate(seg['text'], dest='zh-cn')
+                translation = translator.translate(seg['text'])
                 translated.append({
                     "start": seg['start'],
                     "end": seg['end'],
                     "text": seg['text'],
-                    "translation": translation.text if hasattr(translation, 'text') else str(translation)
+                    "translation": translation
                 })
             except Exception as e:
                 print(f"Translation error: {e}")
