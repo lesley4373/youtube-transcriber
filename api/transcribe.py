@@ -24,7 +24,7 @@ class handler(BaseHTTPRequestHandler):
         response = {
             "message": "YouTube Transcriber API",
             "status": "healthy",
-            "version": "2.0.0-ai",
+            "version": "2.0.0-ai-updated",
             "features": ["yt-dlp", "openai-whisper", "translation"]
         }
         self.wfile.write(json.dumps(response).encode())
