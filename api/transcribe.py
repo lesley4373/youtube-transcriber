@@ -209,11 +209,16 @@ class handler(BaseHTTPRequestHandler):
                     except Exception as audio_error:
                         print(f"Audio URL method failed: {audio_error}")
                         # 回退到字幕提取方法
-                        print(f"Falling back to subtitle extraction...")
-                        subtitle_content, video_title = self.extract_subtitles(url)
-                        title = video_title
-                        segments = self.parse_subtitles(subtitle_content)
-                        print(f"Subtitle extraction complete, got {len(segments)} segments")
+                        try:
+                            print(f"Falling back to subtitle extraction...")
+                            subtitle_content, video_title = self.extract_subtitles(url)
+                            title = video_title
+                            segments = self.parse_subtitles(subtitle_content)
+                            print(f"Subtitle extraction complete, got {len(segments)} segments")
+                        except Exception as subtitle_error:
+                            print(f"Both methods failed. Audio: {audio_error}, Subtitle: {subtitle_error}")
+                            # 返回友好的错误提示
+                            raise Exception(f"YouTube访问被限制。请尝试: 1) 使用'Paste Subtitles'功能手动粘贴字幕, 2) 上传音频文件, 或 3) 稍后重试")
                 
                 # 翻译
                 print(f"Starting translation...")
@@ -581,36 +586,66 @@ class handler(BaseHTTPRequestHandler):
         try:
             print(f"Extracting audio URL from: {url}")
             
-            ydl_opts = {
-                'format': 'bestaudio',
-                'quiet': True,
-                'no_warnings': True,
-                # 反检测措施
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'Connection': 'keep-alive',
-                },
-                'extractor_retries': 3,
-                'sleep_interval': 1,
-            }
+            # 尝试多种格式和策略
+            format_attempts = [
+                'worstaudio',  # 最低质量，较少被检测
+                'bestaudio[acodec=mp4a]',  # MP4音频编码
+                'bestaudio[ext=m4a]',  # M4A格式
+                'bestaudio'  # 最佳音频
+            ]
             
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                if not info:
-                    raise Exception("无法获取视频信息")
-                
-                # 获取最佳音频格式的直接URL
-                audio_url = info.get('url')
-                video_title = info.get('title', 'Unknown Video')
-                
-                if not audio_url:
-                    raise Exception("无法获取音频URL")
-                
-                print(f"Got audio URL: {audio_url[:100]}...")
-                return audio_url, video_title
+            for format_str in format_attempts:
+                try:
+                    print(f"Trying format: {format_str}")
+                    
+                    ydl_opts = {
+                        'format': format_str,
+                        'quiet': True,
+                        'no_warnings': True,
+                        # 增强反检测措施
+                        'http_headers': {
+                            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                            'Accept': '*/*',
+                            'Accept-Language': 'en-US,en;q=0.5',
+                            'Accept-Encoding': 'gzip, deflate',
+                            'Connection': 'keep-alive',
+                            'Referer': 'https://www.youtube.com/',
+                            'Origin': 'https://www.youtube.com',
+                            'Sec-Fetch-Dest': 'empty',
+                            'Sec-Fetch-Mode': 'cors',
+                            'Sec-Fetch-Site': 'cross-site',
+                        },
+                        'extractor_retries': 2,
+                        'sleep_interval': 2,
+                        'socket_timeout': 30,
+                        'skip_unavailable_fragments': True,
+                        'extractor_args': {
+                            'youtube': {
+                                'skip': ['dash'],  # 跳过DASH格式
+                                'player_skip': ['configs'],
+                            }
+                        }
+                    }
+                    
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                        if not info:
+                            continue
+                        
+                        # 获取音频URL
+                        audio_url = info.get('url')
+                        video_title = info.get('title', 'Unknown Video')
+                        
+                        if audio_url:
+                            print(f"Successfully got audio URL with format: {format_str}")
+                            print(f"Got audio URL: {audio_url[:100]}...")
+                            return audio_url, video_title
+                            
+                except Exception as format_error:
+                    print(f"Format {format_str} failed: {format_error}")
+                    continue
+            
+            raise Exception("所有音频格式提取尝试都失败了")
                 
         except Exception as e:
             print(f"Audio URL extraction error: {e}")
