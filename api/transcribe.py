@@ -3,9 +3,6 @@ import json
 import os
 import tempfile
 import yt_dlp
-from openai import OpenAI
-from googletrans import Translator
-import math
 
 class handler(BaseHTTPRequestHandler):
     def send_cors_headers(self):
@@ -27,7 +24,8 @@ class handler(BaseHTTPRequestHandler):
         response = {
             "message": "YouTube Transcriber API",
             "status": "healthy",
-            "version": "2.0.0-ai"
+            "version": "2.0.0-ai",
+            "features": ["yt-dlp", "openai-whisper", "translation"]
         }
         self.wfile.write(json.dumps(response).encode())
     
@@ -45,83 +43,108 @@ class handler(BaseHTTPRequestHandler):
                 self.send_error_response(400, "URL is required")
                 return
             
+            # 获取视频标题
+            title = self.get_video_title(url)
+            
             if not api_key:
-                # Return demo data if no API key
-                self.send_demo_response(url)
+                # 返回提示需要API密钥的演示数据
+                response = {
+                    "title": f"[需要API密钥] {title}",
+                    "segments": [
+                        {
+                            "start": 0.0,
+                            "end": 5.0,
+                            "text": "Please provide OpenAI API key for real transcription.",
+                            "translation": "请在Vercel设置中添加OPENAI_API_KEY环境变量，或在输入框中提供API密钥。"
+                        },
+                        {
+                            "start": 5.0,
+                            "end": 10.0,
+                            "text": "You can get your API key from platform.openai.com",
+                            "translation": "您可以从platform.openai.com获取API密钥。"
+                        }
+                    ]
+                }
+                self.send_success_response(response)
                 return
             
+            # 尝试进行真实的转写
             try:
-                # Download audio from YouTube
+                # 只有有API密钥时才导入这些包
+                from openai import OpenAI
+                from googletrans import Translator
+                
+                # 下载音频
                 audio_file = self.download_audio(url)
-                
                 if not audio_file:
-                    self.send_error_response(500, "Failed to download audio")
-                    return
+                    raise Exception("音频下载失败")
                 
-                # Transcribe with Whisper
-                segments = self.transcribe_audio(audio_file, api_key)
+                # 转写
+                client = OpenAI(api_key=api_key)
+                segments = self.transcribe_audio(audio_file, client)
                 
-                # Translate to Chinese
-                translated_segments = self.translate_segments(segments)
+                # 翻译
+                translator = Translator()
+                translated_segments = self.translate_segments(segments, translator)
                 
-                # Get video title
-                title = self.get_video_title(url)
+                # 清理文件
+                try:
+                    os.remove(audio_file)
+                except:
+                    pass
                 
-                # Send success response
                 response = {
                     "title": title,
                     "segments": translated_segments
                 }
-                
                 self.send_success_response(response)
                 
-                # Clean up temp file
-                if audio_file and os.path.exists(audio_file):
-                    os.remove(audio_file)
-                    
             except Exception as e:
-                self.send_error_response(500, f"Processing error: {str(e)}")
+                # 如果AI处理失败，返回错误信息
+                error_response = {
+                    "title": f"[处理失败] {title}",
+                    "segments": [
+                        {
+                            "start": 0.0,
+                            "end": 5.0,
+                            "text": f"AI processing failed: {str(e)}",
+                            "translation": f"AI处理失败: {str(e)}"
+                        }
+                    ]
+                }
+                self.send_success_response(error_response)
                 
         except Exception as e:
             self.send_error_response(500, f"Request error: {str(e)}")
     
     def download_audio(self, url):
-        """Download audio from YouTube video"""
+        """Download audio from YouTube"""
         try:
-            # Create temp directory
             temp_dir = tempfile.mkdtemp()
-            output_path = os.path.join(temp_dir, 'audio.mp3')
+            output_path = os.path.join(temp_dir, 'audio')
             
             ydl_opts = {
-                'format': 'bestaudio/best',
+                'format': 'bestaudio[filesize<25M]/best[filesize<25M]',
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
                     'preferredquality': '128',
                 }],
-                'outtmpl': output_path,
+                'outtmpl': output_path + '.%(ext)s',
                 'quiet': True,
                 'no_warnings': True,
-                'extract_audio': True,
-                'audio_format': 'mp3',
-                'max_filesize': 25 * 1024 * 1024  # 25MB limit for Vercel
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
             
-            # Check if file exists and is under size limit
-            if os.path.exists(output_path):
-                file_size = os.path.getsize(output_path)
-                if file_size > 25 * 1024 * 1024:
-                    os.remove(output_path)
-                    return None
-                return output_path
-            
-            # Try to find the downloaded file
+            # 查找下载的文件
             for file in os.listdir(temp_dir):
                 if file.endswith('.mp3'):
-                    return os.path.join(temp_dir, file)
+                    file_path = os.path.join(temp_dir, file)
+                    # 检查文件大小
+                    if os.path.getsize(file_path) < 25 * 1024 * 1024:  # 25MB
+                        return file_path
             
             return None
             
@@ -129,13 +152,10 @@ class handler(BaseHTTPRequestHandler):
             print(f"Download error: {e}")
             return None
     
-    def transcribe_audio(self, audio_file, api_key):
-        """Transcribe audio using OpenAI Whisper API"""
+    def transcribe_audio(self, audio_file, client):
+        """Transcribe using OpenAI Whisper"""
         try:
-            client = OpenAI(api_key=api_key)
-            
             with open(audio_file, 'rb') as audio:
-                # Use Whisper API with timestamps
                 response = client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio,
@@ -143,9 +163,8 @@ class handler(BaseHTTPRequestHandler):
                     timestamp_granularities=["segment"]
                 )
             
-            # Process segments
             segments = []
-            if hasattr(response, 'segments'):
+            if hasattr(response, 'segments') and response.segments:
                 for seg in response.segments:
                     segments.append({
                         "start": seg.get('start', 0),
@@ -153,11 +172,11 @@ class handler(BaseHTTPRequestHandler):
                         "text": seg.get('text', '').strip()
                     })
             else:
-                # Fallback if no segments
-                text = response.text if hasattr(response, 'text') else str(response)
+                # Fallback
+                text = getattr(response, 'text', str(response))
                 segments.append({
                     "start": 0,
-                    "end": 10,
+                    "end": 30,
                     "text": text
                 })
             
@@ -165,52 +184,36 @@ class handler(BaseHTTPRequestHandler):
             
         except Exception as e:
             print(f"Transcription error: {e}")
-            # Return error as demo segment
             return [{
                 "start": 0,
                 "end": 5,
                 "text": f"Transcription failed: {str(e)}"
             }]
     
-    def translate_segments(self, segments):
-        """Translate segments to Chinese"""
-        try:
-            translator = Translator()
-            translated = []
-            
-            for seg in segments:
-                try:
-                    # Translate text to Chinese
-                    translation = translator.translate(seg['text'], dest='zh-cn')
-                    translated.append({
-                        "start": seg['start'],
-                        "end": seg['end'],
-                        "text": seg['text'],
-                        "translation": translation.text
-                    })
-                except Exception as e:
-                    # If translation fails, use original text
-                    translated.append({
-                        "start": seg['start'],
-                        "end": seg['end'],
-                        "text": seg['text'],
-                        "translation": seg['text']  # Fallback to original
-                    })
-            
-            return translated
-            
-        except Exception as e:
-            print(f"Translation error: {e}")
-            # Return segments without translation
-            return [{
-                "start": seg['start'],
-                "end": seg['end'],
-                "text": seg['text'],
-                "translation": "[Translation unavailable]"
-            } for seg in segments]
+    def translate_segments(self, segments, translator):
+        """Translate to Chinese"""
+        translated = []
+        for seg in segments:
+            try:
+                translation = translator.translate(seg['text'], dest='zh-cn')
+                translated.append({
+                    "start": seg['start'],
+                    "end": seg['end'],
+                    "text": seg['text'],
+                    "translation": translation.text
+                })
+            except Exception as e:
+                print(f"Translation error: {e}")
+                translated.append({
+                    "start": seg['start'],
+                    "end": seg['end'],
+                    "text": seg['text'],
+                    "translation": seg['text']  # Fallback
+                })
+        return translated
     
     def get_video_title(self, url):
-        """Get video title from YouTube"""
+        """Get YouTube video title"""
         try:
             ydl_opts = {'quiet': True, 'no_warnings': True}
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -219,32 +222,7 @@ class handler(BaseHTTPRequestHandler):
         except:
             return "YouTube Video"
     
-    def send_demo_response(self, url):
-        """Send demo response when no API key is provided"""
-        title = self.get_video_title(url) if 'youtu' in url.lower() else "Demo Video"
-        
-        response = {
-            "title": f"[DEMO - Need API Key] {title}",
-            "segments": [
-                {
-                    "start": 0.0,
-                    "end": 5.0,
-                    "text": "Please provide OpenAI API key for real transcription.",
-                    "translation": "请提供OpenAI API密钥以进行真实转写。"
-                },
-                {
-                    "start": 5.0,
-                    "end": 10.0,
-                    "text": "You can get your API key from platform.openai.com",
-                    "translation": "您可以从platform.openai.com获取API密钥。"
-                }
-            ]
-        }
-        
-        self.send_success_response(response)
-    
     def send_success_response(self, data):
-        """Send successful response"""
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.send_cors_headers()
@@ -252,14 +230,10 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
     
     def send_error_response(self, code, message):
-        """Send error response"""
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
         self.send_cors_headers()
         self.end_headers()
         
-        error_response = {
-            "error": message,
-            "code": code
-        }
+        error_response = {"error": message, "code": code}
         self.wfile.write(json.dumps(error_response).encode('utf-8'))
