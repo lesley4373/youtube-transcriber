@@ -651,83 +651,79 @@ class handler(BaseHTTPRequestHandler):
             }]
     
     def get_audio_url(self, url):
-        """Extract direct audio URL from YouTube without downloading"""
+        """Extract direct audio URL using yt-dlp command line tool"""
         debug_info = []
         
         try:
             print(f"Extracting audio URL from: {url}")
             debug_info.append(f"开始提取: {url}")
             
-            # 尝试多种格式和策略
+            # 使用yt-dlp命令行工具获取音频URL
+            import subprocess
+            
+            # 尝试多种格式
             format_attempts = [
-                'worstaudio',  # 最低质量，较少被检测
-                'bestaudio[acodec=mp4a]',  # MP4音频编码
+                'bestaudio',  # 最佳音频
+                'worstaudio',  # 最低质量
                 'bestaudio[ext=m4a]',  # M4A格式
-                'bestaudio'  # 最佳音频
             ]
             
             for i, format_str in enumerate(format_attempts):
                 try:
-                    print(f"Trying format: {format_str}")
-                    debug_info.append(f"尝试格式 {i+1}/4: {format_str}")
+                    print(f"Trying yt-dlp with format: {format_str}")
+                    debug_info.append(f"尝试格式 {i+1}/{len(format_attempts)}: {format_str}")
                     
-                    ydl_opts = {
-                        'format': format_str,
-                        'quiet': False,  # 显示详细信息
-                        'no_warnings': False,  # 显示警告
-                        # 增强反检测措施
-                        'http_headers': {
-                            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                            'Accept': '*/*',
-                            'Accept-Language': 'en-US,en;q=0.5',
-                            'Accept-Encoding': 'gzip, deflate',
-                            'Connection': 'keep-alive',
-                            'Referer': 'https://www.youtube.com/',
-                            'Origin': 'https://www.youtube.com',
-                            'Sec-Fetch-Dest': 'empty',
-                            'Sec-Fetch-Mode': 'cors',
-                            'Sec-Fetch-Site': 'cross-site',
-                        },
-                        'extractor_retries': 2,
-                        'sleep_interval': 2,
-                        'socket_timeout': 30,
-                        'skip_unavailable_fragments': True,
-                        'extractor_args': {
-                            'youtube': {
-                                'skip': ['dash'],  # 跳过DASH格式
-                                'player_skip': ['configs'],
-                            }
-                        }
-                    }
+                    # 构建yt-dlp命令
+                    cmd = [
+                        'yt-dlp',
+                        '--get-url',
+                        '--format', format_str,
+                        url
+                    ]
                     
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=False)
-                        if not info:
-                            debug_info.append(f"格式 {format_str}: 无法获取视频信息")
-                            continue
+                    debug_info.append(f"执行命令: {' '.join(cmd)}")
+                    
+                    # 执行命令
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=60
+                    )
+                    
+                    debug_info.append(f"命令返回码: {result.returncode}")
+                    
+                    if result.returncode == 0 and result.stdout.strip():
+                        audio_url = result.stdout.strip()
+                        debug_info.append(f"✓ 成功获取音频URL")
+                        debug_info.append(f"URL长度: {len(audio_url)} 字符")
+                        debug_info.append(f"URL开头: {audio_url[:100]}...")
                         
-                        # 调试信息
-                        debug_info.append(f"视频标题: {info.get('title', 'Unknown')}")
-                        debug_info.append(f"视频时长: {info.get('duration', 'Unknown')}秒")
-                        debug_info.append(f"可用格式数量: {len(info.get('formats', []))}")
+                        # 获取视频标题
+                        try:
+                            title_cmd = ['yt-dlp', '--get-title', url]
+                            title_result = subprocess.run(title_cmd, capture_output=True, text=True, timeout=30)
+                            video_title = title_result.stdout.strip() if title_result.returncode == 0 else "Unknown Video"
+                        except:
+                            video_title = "Unknown Video"
                         
-                        # 获取音频URL
-                        audio_url = info.get('url')
-                        video_title = info.get('title', 'Unknown Video')
+                        debug_info.append(f"视频标题: {video_title}")
                         
-                        if audio_url:
-                            debug_info.append(f"✓ 成功提取音频URL (格式: {format_str})")
-                            debug_info.append(f"音频URL长度: {len(audio_url)} 字符")
-                            print(f"Successfully got audio URL with format: {format_str}")
-                            print(f"Got audio URL: {audio_url[:100]}...")
-                            return audio_url, video_title, debug_info
-                        else:
-                            debug_info.append(f"格式 {format_str}: URL为空")
-                            
+                        print(f"Successfully got audio URL with format: {format_str}")
+                        print(f"Audio URL: {audio_url[:100]}...")
+                        return audio_url, video_title, debug_info
+                    else:
+                        error_output = result.stderr.strip() if result.stderr else "无输出"
+                        debug_info.append(f"格式 {format_str} 失败: {error_output[:100]}")
+                        print(f"Format {format_str} failed: {error_output}")
+                        
+                except subprocess.TimeoutExpired:
+                    debug_info.append(f"格式 {format_str}: 命令超时")
+                    print(f"Format {format_str} timed out")
                 except Exception as format_error:
                     error_msg = str(format_error)
-                    print(f"Format {format_str} failed: {format_error}")
-                    debug_info.append(f"格式 {format_str} 失败: {error_msg[:100]}")
+                    debug_info.append(f"格式 {format_str} 异常: {error_msg[:100]}")
+                    print(f"Format {format_str} exception: {format_error}")
                     continue
             
             debug_info.append("所有格式提取尝试都失败了")
