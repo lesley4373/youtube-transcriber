@@ -37,20 +37,18 @@ class handler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length) if content_length else b'{}'
             
-            # 检查Content-Type以确定处理方式
-            content_type = self.headers.get('Content-Type', '')
-            
-            if content_type.startswith('multipart/form-data'):
-                # 处理文件上传
-                boundary = content_type.split('boundary=')[1]
-                data, audio_file = self.parse_multipart(body, boundary)
-            else:
-                # 处理JSON数据
-                data = json.loads(body.decode())
-                audio_file = None
+            # 处理JSON数据
+            data = json.loads(body.decode())
             
             url = data.get('url', '')
             api_key = data.get('api_key', os.environ.get('OPENAI_API_KEY', ''))
+            audio_base64 = data.get('audio_base64', '')
+            filename = data.get('filename', 'audio.mp3')
+            
+            # 处理base64音频文件
+            audio_file = None
+            if audio_base64:
+                audio_file = self.save_base64_audio(audio_base64, filename)
             
             if not url and not audio_file:
                 self.send_error_response(400, "URL or audio file is required")
@@ -151,6 +149,37 @@ class handler(BaseHTTPRequestHandler):
                 
         except Exception as e:
             self.send_error_response(500, f"Request error: {str(e)}")
+    
+    def save_base64_audio(self, base64_data, filename):
+        """Save base64 encoded audio to a temporary file"""
+        try:
+            # 移除data URL前缀（如果存在）
+            if ',' in base64_data:
+                base64_data = base64_data.split(',')[1]
+            
+            # 解码base64数据
+            audio_data = base64.b64decode(base64_data)
+            
+            # 获取文件扩展名
+            file_ext = '.mp3'
+            if '.' in filename:
+                file_ext = '.' + filename.split('.')[-1].lower()
+            
+            # 保存到临时文件
+            temp_dir = '/tmp'
+            import uuid
+            unique_id = str(uuid.uuid4())[:8]
+            audio_path = os.path.join(temp_dir, f'audio_{unique_id}{file_ext}')
+            
+            with open(audio_path, 'wb') as f:
+                f.write(audio_data)
+            
+            print(f"Saved base64 audio to: {audio_path}, size: {len(audio_data)} bytes")
+            return audio_path
+            
+        except Exception as e:
+            print(f"Error saving base64 audio: {e}")
+            return None
     
     def parse_multipart(self, body, boundary):
         """Parse multipart/form-data"""

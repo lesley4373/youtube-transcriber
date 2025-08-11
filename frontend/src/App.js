@@ -39,15 +39,21 @@ function App() {
       
       let response;
       if (inputMode === 'file' && audioFile) {
-        // 上传音频文件
-        const formData = new FormData();
-        formData.append('audio', audioFile);
-        formData.append('api_key', apiKey);
+        // 将文件转换为base64
+        const reader = new FileReader();
+        const base64Promise = new Promise((resolve, reject) => {
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(audioFile);
+        });
         
-        response = await axios.post(apiUrl, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          }
+        const base64Data = await base64Promise;
+        
+        // 发送base64数据
+        response = await axios.post(apiUrl, {
+          audio_base64: base64Data,
+          filename: audioFile.name,
+          api_key: apiKey
         });
       } else {
         // YouTube URL
