@@ -26,10 +26,12 @@ function App() {
     setTranscript(null);
 
     try {
-      // 动态获取API地址 - 支持生产环境
+      // 动态获取API地址 - 支持Vercel全栈部署
       const apiUrl = process.env.REACT_APP_API_URL 
         ? `${process.env.REACT_APP_API_URL}/transcribe`
-        : `http://${window.location.hostname}:8000/transcribe`;
+        : (window.location.hostname === 'localhost' 
+          ? `http://${window.location.hostname}:8000/transcribe`
+          : `/api/transcribe`);
       
       const response = await axios.post(apiUrl, { url });
       setTranscript(response.data);

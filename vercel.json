@@ -8,15 +8,20 @@
       "config": {
         "distDir": "build"
       }
+    },
+    {
+      "src": "api/transcribe.py",
+      "use": "@vercel/python"
     }
   ],
   "routes": [
     {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
       "src": "/(.*)",
       "dest": "frontend/$1"
     }
-  ],
-  "env": {
-    "REACT_APP_API_URL": "https://your-backend-url.railway.app"
-  }
+  ]
 }
